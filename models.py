@@ -2,6 +2,7 @@ import datetime
 import requests
 import pytz
 import pandas
+from config import Config
 
 
 class Tools:
@@ -10,7 +11,6 @@ class Tools:
     time = datetime.datetime.now(aus_tz).strftime(time_format)
     market_open = datetime.time(10, 0, 0, tzinfo=aus_tz)
     market_close = datetime.time(16, 0, 0, tzinfo=aus_tz)
-    api_key = 'JJILY2HLQSB545LJ'  # https://www.alphavantage.co/
 
 
 class Stock:
@@ -29,7 +29,7 @@ class Stock:
         params = {'function': 'TIME_SERIES_INTRADAY',
                   'symbol': self.ticker + '.AX',
                   'interval': '5min',
-                  'apikey': Tools.api_key}
+                  'apikey': Config.api_key}
         response = requests.get('https://www.alphavantage.co/query', params=params)
 
         # Store data and time of retrieval
