@@ -4,6 +4,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as ec
 from fake_useragent import UserAgent
+from bs4 import BeautifulSoup
 
 
 class Scraper:
@@ -81,5 +82,29 @@ class DetailsUrl(UrlBuilder):
 
 
 class ListedCompaniesUrl(UrlBuilder):
-    def url(self):
+    def url(self, _):
         return self.build_url(['research/listedCompanies.do'])
+
+
+class _DataFetcher:
+    def __init__(self):
+        self.scraper = Scraper()
+        self.url_obj = None
+
+    def parse(self, html):
+        data = dict()
+        return data
+
+    def fetch(self, ticker):
+        url = self.url_obj.url(ticker)
+        html = self.scraper.scrape(url)
+        return self.parse(html)
+
+
+class StatisticsFetcher(_DataFetcher):
+    def __init__(self):
+        super().__init__()
+        self.url_obj = StatisticsUrl()
+
+    def parse(self, html):
+        data = dict()

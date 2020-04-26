@@ -3,6 +3,7 @@ import requests
 import pytz
 import pandas
 from config import Config
+import scraper
 
 
 class Tools:
@@ -25,7 +26,7 @@ class Stock:
         self.latest_update = None
 
     def get_price_data(self):
-        # Get 5min intraday data for this ticker on the ASX
+        # Get 5min intraday data for this ticker on the ASX TODO could use the Quote Endpoint (GLOBAL_QUOTE) here instead
         params = {'function': 'TIME_SERIES_INTRADAY',
                   'symbol': self.ticker + '.AX',
                   'interval': '5min',
@@ -52,7 +53,6 @@ class Stock:
 
     def get_shares_issued(self):
         pass
-
 
 class LIC(Stock):
     def __init__(self, *args, **kwargs):
