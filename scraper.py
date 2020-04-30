@@ -5,6 +5,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as ec
 from fake_useragent import UserAgent
 from bs4 import BeautifulSoup
+import pandas
 
 
 class Scraper:
@@ -61,7 +62,7 @@ class UrlBuilder:
         self.base = base
 
     def build_url(self, routes, base=None):
-        url = base if not None else self.base
+        url = self.base if not base else base
         for route in routes:
             url += '/' + route
         return url
@@ -73,12 +74,12 @@ class UrlBuilder:
 
 class StatisticsUrl(UrlBuilder):
     def url(self, ticker):
-        return self.build_url([self.ticker_route(ticker), '/statistics/shares'])
+        return self.build_url([self.ticker_route(ticker), 'statistics/shares'])
 
 
 class DetailsUrl(UrlBuilder):
     def url(self, ticker):
-        return self.build_url([self.ticker_route(ticker), '/details'])
+        return self.build_url([self.ticker_route(ticker), 'details'])
 
 
 class ListedCompaniesUrl(UrlBuilder):
@@ -91,7 +92,7 @@ class _DataFetcher:
         self.scraper = Scraper()
         self.url_obj = None
 
-    def parse(self, html):
+    def parse(self, soup):
         data = dict()
         return data
 
@@ -108,3 +109,31 @@ class StatisticsFetcher(_DataFetcher):
 
     def parse(self, html):
         data = dict()
+        tables_list = pandas.read_html(html)
+        stats_table = tables_list[0]
+        data['shares issued'] = stats_table.iloc[8, 1]
+        return data
+
+
+class DetailsFetcher(_DataFetcher):
+    def __init__(self):
+        super().__init__()
+        self.url_obj = DetailsUrl()
+
+    def parse(self, html):
+        data = dict()
+        soup = BeautifulSoup(html, 'html.parser')
+        try:
+            data['sector'] = soup.find('div', attrs={'class': 'company-subscript ng-binding', 'ng-bind': 'company.sector_name'}).contents[0]
+        except AttributeError:
+            data['sector'] = 'LIC'  # TODO this is just a guess, based on how asx website behaves
+
+        tables_list = pandas.read_html(html)
+        stats_table = tables_list[0]
+        data['url'] = stats_table.iloc[5, 1]
+        return data
+
+
+if __name__ == '__main__':
+    df = DetailsFetcher()
+    df.fetch('4DS')
