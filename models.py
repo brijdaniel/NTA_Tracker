@@ -22,8 +22,7 @@ class Stock:
         self.price = {'price': None, 'time': None}
         self.shares_issued = int()
         self.sector = str()
-        self.latest_data = dict()
-        self.latest_update = datetime.datetime(2000, 1, 1, 00, 00)  # Default time to allow initial condition testing
+        self.last_update = datetime.datetime(2000, 1, 1, 00, 00)  # Default time to allow initial condition testing
 
         # Get initial data
         self.get_stats()
@@ -37,23 +36,23 @@ class Stock:
                   'apikey': Config.api_key}
         response = requests.get('https://www.alphavantage.co/query', params=params)
 
-        # Store data and time of retrieval
-        self.latest_data = response.json()
+        # Store time of data retrieval
         self.latest_update = datetime.datetime.strptime(response.headers['Date'], '%a, %d %b %Y %H:%M:%S %Z').replace(tzinfo=pytz.timezone('Etc/GMT'))
+        return response.json()
 
     def update_price(self):
         # Last data API call was over 5 mins ago, then fetch fresh data
         if (datetime.datetime.now() - self.latest_update) / 60 > datetime.timedelta(seconds=300):
-            self.get_price_data()
+            data = self.get_price_data()
 
-        # Get time information from data
-        us_timezone = self.latest_data['Meta Data']['6. Time Zone']
-        us_time_str = list(self.latest_data['Time Series (5min)'].keys())[0]
-        us_time = datetime.datetime.strptime(us_time_str, '%Y-%m-%d %H:%M:%S').replace(tzinfo=pytz.timezone(us_timezone))
+            # Get time information from data
+            us_timezone = data['Meta Data']['6. Time Zone']
+            us_time_str = list(data['Time Series (5min)'].keys())[0]
+            us_time = datetime.datetime.strptime(us_time_str, '%Y-%m-%d %H:%M:%S').replace(tzinfo=pytz.timezone(us_timezone))
 
-        # Get price and local time
-        self.price['time'] = us_time.astimezone(Tools.aus_tz)
-        self.price['price'] = float(self.latest_data['Time Series (5min)'][us_time_str]['4. close'])
+            # Get price and local time
+            self.price['time'] = us_time.astimezone(Tools.aus_tz)
+            self.price['price'] = float(data['Time Series (5min)'][us_time_str]['4. close'])
 
     def get_stats(self):
         # Create scraper objects for different pages to scrape
