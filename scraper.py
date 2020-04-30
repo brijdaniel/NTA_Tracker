@@ -127,6 +127,7 @@ class DetailsFetcher(_DataFetcher):
             data['sector'] = soup.find('div', attrs={'class': 'company-subscript ng-binding', 'ng-bind': 'company.sector_name'}).contents[0]
         except AttributeError:
             data['sector'] = 'LIC'  # TODO this is just a guess, based on how asx website behaves
+        data['name'] = soup.find('span', attrs={'id': 'company-name-title'}).contents[0]
 
         tables_list = pandas.read_html(html)
         stats_table = tables_list[0]

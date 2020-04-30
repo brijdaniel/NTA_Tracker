@@ -15,9 +15,9 @@ class Tools:
 
 
 class Stock:
-    def __init__(self, ticker, name, **kwargs):
+    def __init__(self, ticker, **kwargs):
         self.ticker = ticker
-        self.name = name
+        self.name = str()
         self.url = str()
         self.price = {'price': None, 'time': None}
         self.shares_issued = int()
@@ -67,6 +67,7 @@ class Stock:
         self.shares_issued = int(stats['shares issued'])
         self.url = details['url']
         self.sector = details['sector']
+        self.name = details['name']
 
 
 class LIC(Stock):
@@ -75,6 +76,7 @@ class LIC(Stock):
         self.cash = int()
         self.holdings = pandas.DataFrame(columns=['holding', 'units'])
         self.NTA = {'NTA': float(), 'time': str()}
+        self.update_NTA()
 
     def update_NTA(self):
         total_assets = self.cash
@@ -93,5 +95,5 @@ class LIC(Stock):
 
 
 if __name__ == '__main__':
-    arg = Stock('ARG', 'Argo')
-    afi = Stock('AFI', 'AFIC')
+    arg = Stock('ARG')
+    afi = Stock('AFI')
