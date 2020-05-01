@@ -2,8 +2,16 @@ import datetime
 import requests
 import pytz
 import pandas
+import sqlalchemy as db
+from sqlalchemy_utils import TimezoneType
+from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.ext.declarative import declarative_base
 from config import Config
 import scraper
+
+
+engine = db.create_engine('sqlite:////tmp/test.db', echo=True)
+Base = declarative_base(bind=engine)
 
 
 class Tools:
@@ -14,35 +22,83 @@ class Tools:
     market_close = datetime.time(16, 0, 0, tzinfo=aus_tz)
 
 
-class Stock:
-    def __init__(self, ticker, **kwargs):
+class Market(Base):
+    __tablename__ = 'market'
+    code = db.Column(db.String, primary_key=True)
+    name = db.Column(db.String)
+    api_ext = db.Column(db.String)
+    timezone = db.Column(TimezoneType(backend='pytz'))
+    open = db.Column(db.Time(timezone=True))
+    close = db.Column(db.Time(timezone=True))
+    base_url = db.Column(db.String)
+
+    # Foreign key relationships
+    stocks = relationship('Stock', order_by='Stock.ticker', back_populates='market')
+
+    def __init__(self, code, **kwargs):
+        self.code = code
+        self.name = kwargs.pop('name', None)
+        self.api_code = kwargs.pop('api_code', None)
+        self.timezone = kwargs.pop('timezone', None)
+        self.open = kwargs.pop('open', None)
+        self.close = kwargs.pop('close', None)
+        self.base_url = kwargs.pop('base_url', None)
+
+    def get_all_stocks(self):
+        pass
+
+
+class Stock(Base):
+    __tablename__ = 'stock'
+    ticker = db.Column(db.String, primary_key=True)
+    name = db.Column(db.String)
+    url = db.Column(db.String)
+    price = db.Column(db.Float)
+    price_time = db.Column(db.DateTime)
+    shares_issued = db.Column(db.Integer)
+    sector = db.Column(db.String)
+    last_updated = db.Column(db.DateTime)
+    type = db.Column(db.String)
+
+    # Link stock data to markets table via market code
+    market_code = db.Column(db.String, db.ForeignKey('market.code'), primary_key=True)
+    market = relationship('Market', back_populates='stocks')
+
+    # Map polymorphism identifier for Joined Table Inheritance with LIC table
+    # https://docs.sqlalchemy.org/en/13/orm/inheritance.html
+    __mapper_args__ = {'polymorphic_identity': 'stock',
+                       'polymorphic_on': type}
+
+    def __init__(self, ticker, market_code, **kwargs):
         self.ticker = ticker
+        self.market = market_code
         self.name = str()
         self.url = str()
-        self.price = {'price': None, 'time': None}
+        self.price = float()
+        self.price_time = None
         self.shares_issued = int()
         self.sector = str()
-        self.last_update = datetime.datetime(2000, 1, 1, 00, 00)  # Default time to allow initial condition testing
+        self.last_updated = datetime.datetime(2000, 1, 1, 00, 00)  # Default time to allow initial condition testing
 
         # Get initial data
         self.get_stats()
         self.update_price()
 
     def get_price_data(self):
-        # Get 5min intraday data for this ticker on the ASX TODO could use the Quote Endpoint (GLOBAL_QUOTE) here instead
+        # Get 5min intraday data for this ticker on the ASX TODO could use the Quote Endpoint (GLOBAL_QUOTE) here instead but it doesnt give a price data timestamp
         params = {'function': 'TIME_SERIES_INTRADAY',
-                  'symbol': self.ticker + '.AX',
+                  'symbol': self.ticker + '.AX',  # TODO change to: + '.' + self.market.api_code
                   'interval': '5min',
                   'apikey': Config.api_key}
         response = requests.get('https://www.alphavantage.co/query', params=params)
 
         # Store time of data retrieval
-        self.latest_update = datetime.datetime.strptime(response.headers['Date'], '%a, %d %b %Y %H:%M:%S %Z').replace(tzinfo=pytz.timezone('Etc/GMT'))
+        self.last_updated = datetime.datetime.strptime(response.headers['Date'], '%a, %d %b %Y %H:%M:%S %Z').replace(tzinfo=pytz.timezone('Etc/GMT'))
         return response.json()
 
     def update_price(self):
         # Last data API call was over 5 mins ago, then fetch fresh data
-        if (datetime.datetime.now() - self.latest_update) / 60 > datetime.timedelta(seconds=300):
+        if (datetime.datetime.now() - self.last_updated) / 60 > datetime.timedelta(seconds=300):
             data = self.get_price_data()
 
             # Get time information from data
@@ -51,8 +107,8 @@ class Stock:
             us_time = datetime.datetime.strptime(us_time_str, '%Y-%m-%d %H:%M:%S').replace(tzinfo=pytz.timezone(us_timezone))
 
             # Get price and local time
-            self.price['time'] = us_time.astimezone(Tools.aus_tz)
-            self.price['price'] = float(data['Time Series (5min)'][us_time_str]['4. close'])
+            self.price_time = us_time.astimezone(Tools.aus_tz)
+            self.price = float(data['Time Series (5min)'][us_time_str]['4. close'])
 
     def get_stats(self):
         # Create scraper objects for different pages to scrape
@@ -70,19 +126,29 @@ class Stock:
 
 
 class LIC(Stock):
+    __tablename__ = 'lic'
+    cash = db.Column(db.Integer)
+    NTA = db.Column(db.Float)
+    NTA_time = db.Column(db.DateTime)
+    holdings = relationship('Holdings', back_populates='LIC')
+
+    # Map polymorphism identifier for Joined Table Inheritance with stock table
+    __mapper_args__ = {'polymorphic_identity': 'LIC'}
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.cash = int()
         self.holdings = pandas.DataFrame(columns=['holding', 'units'])
-        self.NTA = {'NTA': float(), 'time': str()}
+        self.NTA = float()
+        self.NTA_time = None
         self.update_NTA()
 
     def update_NTA(self):
         total_assets = self.cash
         for holding in self.holdings:
-            total_assets += holding['ticker'].price['price'] * holding['units']
-        self.NTA['NTA'] = total_assets / self.shares_issued
-        self.NTA['time'] = Tools.time
+            total_assets += holding['ticker'].price * holding['units']
+        self.NTA = total_assets / self.shares_issued
+        self.NTA_time = Tools.time
 
     def modify_holding(self, stock, units):
         # TODO see if object for ticker already exists in DB, if not create it
@@ -93,6 +159,10 @@ class LIC(Stock):
             self.holdings.loc[stock.ticker] = {'holding': stock, 'units': units}
 
 
-if __name__ == '__main__':
-    arg = Stock('ARG')
-    afi = Stock('AFI')
+class Holdings(Base):
+    __tablename__ = 'holdings'
+    units = db.Column(db.Integer)
+    holding_ticker = db.Column(db.ForeignKey('stock.ticker'))
+    holding = relationship('Stock')
+    LIC_ticker = db.Column(db.ForeignKey('lic.ticker'), primary_key=True)
+    LIC = relationship('LIC', back_populates='holdings')
