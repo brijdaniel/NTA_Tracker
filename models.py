@@ -10,7 +10,7 @@ from config import Config
 import scraper
 
 
-engine = db.create_engine('sqlite:////tmp/test.db', echo=True)
+engine = db.create_engine('sqlite:///test.db', echo=True)
 Base = declarative_base(bind=engine)
 
 
@@ -61,7 +61,7 @@ class Stock(Base):
     type = db.Column(db.String)
 
     # Link stock data to markets table via market code
-    market_code = db.Column(db.String, db.ForeignKey('market.code'), primary_key=True)
+    market_code = db.Column(db.String, db.ForeignKey('market.code'))
     market = relationship('Market', back_populates='stocks')
 
     # Map polymorphism identifier for Joined Table Inheritance with LIC table
@@ -71,13 +71,13 @@ class Stock(Base):
 
     def __init__(self, ticker, market_code, **kwargs):
         self.ticker = ticker
-        self.market = market_code
-        self.name = str()
-        self.url = str()
-        self.price = float()
-        self.price_time = None
-        self.shares_issued = int()
-        self.sector = str()
+        self.market_code = market_code
+        self.name = kwargs.pop('name', None)
+        self.url = kwargs.pop('url', None)
+        self.price = kwargs.pop('price', None)
+        self.price_time = kwargs.pop('price_time', None)
+        self.shares_issued = kwargs.pop('shares_issued', None)
+        self.sector = kwargs.pop('sector', None)
         self.last_updated = datetime.datetime(2000, 1, 1, 00, 00)  # Default time to allow initial condition testing
 
         # Get initial data
@@ -126,11 +126,11 @@ class Stock(Base):
 
 
 class LIC(Stock):
-    __tablename__ = 'lic'
+    #__tablename__ = 'lic'
     cash = db.Column(db.Integer)
     NTA = db.Column(db.Float)
     NTA_time = db.Column(db.DateTime)
-    holdings = relationship('Holdings', back_populates='LIC')
+    #holdings = relationship('Holdings', back_populates='LIC')
 
     # Map polymorphism identifier for Joined Table Inheritance with stock table
     __mapper_args__ = {'polymorphic_identity': 'LIC'}
@@ -138,7 +138,7 @@ class LIC(Stock):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.cash = int()
-        self.holdings = pandas.DataFrame(columns=['holding', 'units'])
+        self.holdings = None
         self.NTA = float()
         self.NTA_time = None
         self.update_NTA()
@@ -152,17 +152,28 @@ class LIC(Stock):
 
     def modify_holding(self, stock, units):
         # TODO see if object for ticker already exists in DB, if not create it
-        # if ticker in df then update units else add ticker and units to df
-        if stock in self.holdings.holding.values:
-            self.holdings.loc[stock, 'units'] = units
+        # if ticker in holdings table then update units else add ticker and units to holdings table
+        if stock in self.holdings.holding_ticker:
+            self.holdings.holding_ticker['units'] = units
         else:
             self.holdings.loc[stock.ticker] = {'holding': stock, 'units': units}
 
 
-class Holdings(Base):
-    __tablename__ = 'holdings'
-    units = db.Column(db.Integer)
-    holding_ticker = db.Column(db.ForeignKey('stock.ticker'))
-    holding = relationship('Stock')
-    LIC_ticker = db.Column(db.ForeignKey('lic.ticker'), primary_key=True)
-    LIC = relationship('LIC', back_populates='holdings')
+# class Holdings(Base):
+#     __tablename__ = 'holdings'
+#     units = db.Column(db.Integer)
+#     holding_ticker = db.Column(db.ForeignKey('stock.ticker'))
+#     holding = relationship('Stock')
+#     LIC_ticker = db.Column(db.ForeignKey('lic.ticker'), primary_key=True)
+#     LIC = relationship('LIC', back_populates='holdings')
+
+
+if __name__ == '__main__':
+    Base.metadata.create_all()
+
+    Session = sessionmaker(bind=engine)
+    s = Session()
+    asx = Market('ASX')
+    cnu = Stock('CNU', 'ASX')
+    s.add_all([asx, cnu])
+    s.commit()
