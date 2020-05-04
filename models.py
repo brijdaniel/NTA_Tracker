@@ -6,9 +6,17 @@ import sqlalchemy as db
 from sqlalchemy_utils import TimezoneType
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql.expression import Insert
 from config import Config
 import scraper
 
+
+# Replace all 'INSERT' queries with 'INSERT OR IGNORE' to avoid IntegrityError's on duplicate entries
+# This is a global change so could have further implications
+@compiles(Insert)
+def _prefix_insert_with_ignore(insert, compiler, **kw):
+    return compiler.visit_insert(insert.prefix_with('OR IGNORE'), **kw)
 
 engine = db.create_engine('sqlite:///test.db', echo=True)
 Base = declarative_base(bind=engine)
@@ -64,7 +72,7 @@ class Stock(Base):
     market_code = db.Column(db.String, db.ForeignKey('market.code'))
     market = relationship('Market', back_populates='stocks')
 
-    # Map polymorphism identifier for Joined Table Inheritance with LIC table
+    # Map polymorphism identifier for Single Table Inheritance with LIC table
     # https://docs.sqlalchemy.org/en/13/orm/inheritance.html
     __mapper_args__ = {'polymorphic_identity': 'stock',
                        'polymorphic_on': type}
@@ -126,22 +134,21 @@ class Stock(Base):
 
 
 class LIC(Stock):
-    #__tablename__ = 'lic'
     cash = db.Column(db.Integer)
     NTA = db.Column(db.Float)
     NTA_time = db.Column(db.DateTime)
     #holdings = relationship('Holdings', back_populates='LIC')
 
-    # Map polymorphism identifier for Joined Table Inheritance with stock table
+    # Map polymorphism identifier for Single Table Inheritance with stock table
     __mapper_args__ = {'polymorphic_identity': 'LIC'}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.cash = int()
-        self.holdings = None
-        self.NTA = float()
-        self.NTA_time = None
-        self.update_NTA()
+        self.cash = kwargs.pop('cash', None)
+        self.holdings = kwargs.pop('holdings', [])
+        self.NTA = kwargs.pop('NTA', None)
+        self.NTA_time = kwargs.pop('NTA_time', None)
+        #self.update_NTA()
 
     def update_NTA(self):
         total_assets = self.cash
@@ -175,5 +182,6 @@ if __name__ == '__main__':
     s = Session()
     asx = Market('ASX')
     cnu = Stock('CNU', 'ASX')
-    s.add_all([asx, cnu])
+    arg = LIC('ARG', 'ASX')
+    s.add_all([asx, cnu, arg])
     s.commit()
