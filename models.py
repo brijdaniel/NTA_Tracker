@@ -14,6 +14,7 @@ import scraper
 
 # Replace all 'INSERT' queries with 'INSERT OR IGNORE' to avoid IntegrityError's on duplicate entries
 # This is a global change so could have further implications
+# https://stackoverflow.com/questions/2218304/sqlalchemy-insert-ignore
 @compiles(Insert)
 def _prefix_insert_with_ignore(insert, compiler, **kw):
     return compiler.visit_insert(insert.prefix_with('OR IGNORE'), **kw)
@@ -34,7 +35,7 @@ class Market(Base):
     __tablename__ = 'market'
     code = db.Column(db.String, primary_key=True)
     name = db.Column(db.String)
-    api_ext = db.Column(db.String)
+    api_code = db.Column(db.String)
     timezone = db.Column(TimezoneType(backend='pytz'))
     open = db.Column(db.Time(timezone=True))
     close = db.Column(db.Time(timezone=True))
@@ -72,6 +73,10 @@ class Stock(Base):
     market_code = db.Column(db.String, db.ForeignKey('market.code'))
     market = relationship('Market', back_populates='stocks')
 
+    # Relate stock to any LICs that hold it TODO not sure if I need this line as I don't care about this association
+    #holder_ticker = db.Column(db.String, db.ForeignKey('lic.ticker'))
+    #holders = relationship('LIC', foreign_keys=[holder_ticker], secondary='holding')
+
     # Map polymorphism identifier for Single Table Inheritance with LIC table
     # https://docs.sqlalchemy.org/en/13/orm/inheritance.html
     __mapper_args__ = {'polymorphic_identity': 'stock',
@@ -95,7 +100,7 @@ class Stock(Base):
     def get_price_data(self):
         # Get 5min intraday data for this ticker on the ASX TODO could use the Quote Endpoint (GLOBAL_QUOTE) here instead but it doesnt give a price data timestamp
         params = {'function': 'TIME_SERIES_INTRADAY',
-                  'symbol': self.ticker + '.AX',  # TODO change to: + '.' + self.market.api_code
+                  'symbol': self.ticker + '.' + 'AX', #self.market.api_code, TODO stock-market association isnt made until after objs are committed to db, so this attr does not exist when calling this method from init
                   'interval': '5min',
                   'apikey': Config.api_key}
         response = requests.get('https://www.alphavantage.co/query', params=params)
@@ -137,7 +142,9 @@ class LIC(Stock):
     cash = db.Column(db.Integer)
     NTA = db.Column(db.Float)
     NTA_time = db.Column(db.DateTime)
-    #holdings = relationship('Holdings', back_populates='LIC')
+
+    holding_ticker = db.Column(db.String, db.ForeignKey('stock.ticker'))  # had ForeignKey('holding.holding_ticker') here and produces different error
+    holdings = relationship('Stock', foreign_keys=[holding_ticker], secondary='holding')
 
     # Map polymorphism identifier for Single Table Inheritance with stock table
     __mapper_args__ = {'polymorphic_identity': 'LIC'}
@@ -166,13 +173,12 @@ class LIC(Stock):
             self.holdings.loc[stock.ticker] = {'holding': stock, 'units': units}
 
 
-# class Holdings(Base):
-#     __tablename__ = 'holdings'
-#     units = db.Column(db.Integer)
-#     holding_ticker = db.Column(db.ForeignKey('stock.ticker'))
-#     holding = relationship('Stock')
-#     LIC_ticker = db.Column(db.ForeignKey('lic.ticker'), primary_key=True)
-#     LIC = relationship('LIC', back_populates='holdings')
+class Holding(Base):
+    # Many to many relationship between LIC and Stock tables
+    __tablename__ = 'holding'
+    LIC_ticker = db.Column(db.String, db.ForeignKey('stock.ticker'), primary_key=True)
+    holding_ticker = db.Column(db.String, db.ForeignKey('stock.ticker'), primary_key=True)
+    units = db.Column(db.Integer)
 
 
 if __name__ == '__main__':
@@ -180,8 +186,9 @@ if __name__ == '__main__':
 
     Session = sessionmaker(bind=engine)
     s = Session()
-    asx = Market('ASX')
+    asx = Market('ASX', api_code='AX')
     cnu = Stock('CNU', 'ASX')
     arg = LIC('ARG', 'ASX')
+    arg.holdings.append(cnu)
     s.add_all([asx, cnu, arg])
     s.commit()
